@@ -5,6 +5,10 @@ metadata:
   namespace: myapp
 spec:
   replicas: 1
+
+  strategy:
+    type: Recreate
+
   selector:
     matchLabels:
       app: myapp
@@ -19,4 +23,4 @@ spec:
           image: lakshminarayan21905/guvi-kongu-connect
           ports:
             - containerPort: 3000
-          imagePullPolicy: Always
+          imagePullPolicy: Always 
