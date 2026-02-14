@@ -39,7 +39,6 @@ jobs:
           echo "No tests configured yet"
           # npm test
 
-
   # ==========================================
   # STAGE 2 – BUILD & PUSH IMAGE
   # ==========================================
@@ -71,7 +70,6 @@ jobs:
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:latest
           cache-to: type=inline
 
-
   # ==========================================
   # STAGE 3 – DEPLOY TO EKS
   # ==========================================
@@ -97,6 +95,11 @@ jobs:
           sudo mv kubectl /usr/local/bin/
           kubectl version --client
 
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
       - name: Connect to EKS Cluster
         run: |
           aws eks update-kubeconfig --name $CLUSTER_NAME --region $REGION
@@ -104,6 +107,29 @@ jobs:
 
       - name: Create namespace
         run: kubectl apply -f k8s/namespace.yaml
+
+      - name: Install AWS Load Balancer Controller
+        run: |
+          # Add EKS Helm repo
+          helm repo add eks https://aws.github.io/eks-charts
+          helm repo update
+
+          # Create IAM service account (skip if already exists)
+          eksctl create iamserviceaccount `
+            --cluster $CLUSTER_NAME `
+            --namespace kube-system `
+            --name aws-load-balancer-controller `
+            --attach-policy-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:policy/AWSLoadBalancerControllerIAMPolicy `
+            --approve
+
+          # Install controller via Helm
+          VPC_ID=$(aws eks describe-cluster --name $CLUSTER_NAME --region $REGION --query "cluster.resourcesVpcConfig.vpcId" --output text)
+          helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller `
+            -n kube-system `
+            --set clusterName=$CLUSTER_NAME `
+            --set serviceAccount.create=false `
+            --set region=$REGION `
+            --set vpcId=$VPC_ID
 
       - name: Deploy manifests
         run: |
@@ -129,3 +155,8 @@ jobs:
           kubectl get all -n $NAMESPACE
           echo "========== INGRESS =========="
           kubectl get ingress -n $NAMESPACE || true
+
+      - name: Show ingress hostname
+        run: |
+          echo "Ingress hostname:"
+          kubectl get ingress -n $NAMESPACE -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
